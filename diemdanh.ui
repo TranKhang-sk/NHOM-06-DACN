@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>chamcong</class>
- <widget class="QMainWindow" name="chamcong">
+ <class>diemdanh</class>
+ <widget class="QMainWindow" name="diemdanh">
   <property name="geometry">
    <rect>
     <x>0</x>
