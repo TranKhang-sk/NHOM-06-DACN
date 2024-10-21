@@ -7,47 +7,65 @@ import sys
 import os
 import conndb
 from PyQt6.QtWidgets import QFileDialog
-import shutil 
+import shutil
 
-class sinhvien(QMainWindow):
-    def __init__(self, widget):
-        super(sinhvien, self).__init__()
+class SinhVien(QMainWindow):
+    def __init__(self, parent=None):
+        super(SinhVien, self).__init__(parent)
         uic.loadUi("sinhvien.ui", self)
-        self.widget = widget
-        self.image = ""
+        self.setWindowTitle("Thông tin sinh viên")
+        
+        # Khởi tạo biến
+        self.image_path = None  
         self.pixmap = QPixmap("./img/avatar/user.png")
-
+        
         # Khởi tạo các nút và kết nối tín hiệu
+        self.setupUi()
+
+        # Kết nối đến cơ sở dữ liệu
+        self.conn = conndb.conndb()
+        self.loadData()
+
+    def setupUi(self):
         self.btnTimKiem = self.findChild(QtWidgets.QPushButton, 'btnTimKiem')
         self.btnChonAnh = self.findChild(QtWidgets.QPushButton, 'btnChonAnh')
         self.btnThem = self.findChild(QtWidgets.QPushButton, 'btnThem')
         self.btnLamMoi = self.findChild(QtWidgets.QPushButton, 'btnLamMoi')
         self.btnSua = self.findChild(QtWidgets.QPushButton, 'btnSua')
         self.btnXoa = self.findChild(QtWidgets.QPushButton, 'btnXoa')
-        self.btnThoat = self.findChild(QtWidgets.QPushButton, 'btnThoat')  # Tìm nút THOÁT
+        self.btnThoat = self.findChild(QtWidgets.QPushButton, 'btnThoat')
+
+        self.lblAvatar = self.findChild(QtWidgets.QLabel, 'lblAvatar')  
+        self.lblAvatar.setPixmap(self.pixmap)
+        self.lblAvatar.setScaledContents(True)
 
         # Kết nối các nút với các hàm xử lý
         self.btnTimKiem.clicked.connect(self.searchItem)
-        self.lblAvatar.setPixmap(self.pixmap)
         self.btnChonAnh.clicked.connect(self.chooseImage)
         self.tblSinhVien.clicked.connect(self.getItem)
         self.btnThem.clicked.connect(self.addItem)
         self.btnLamMoi.clicked.connect(self.resetTextBox)
         self.btnSua.clicked.connect(self.updateItem)
         self.btnXoa.clicked.connect(self.deleteItem)
-        self.btnThoat.clicked.connect(self.exitForm)  # Kết nối nút THOÁT
-        self.conn = conndb.conndb()
-        self.loadData()
-        self.image_path = None  # Biến lưu đường dẫn ảnh
+        self.btnThoat.clicked.connect(self.confirmExit)
 
     def chooseImage(self):
-        imgLink = QFileDialog.getOpenFileName(filter='*.jpg *.png')
-        dir_path = os.path.dirname(os.path.realpath(__file__))
-        avatar = dir_path + '\\' + 'img\\avatar\\' + imgLink[0].split('/')[-1]
-        shutil.copyfile(imgLink[0], avatar)
-        self.pixmap = QPixmap(imgLink[0])
+        imgLink, _ = QFileDialog.getOpenFileName(self, "Chọn ảnh", "", "Images (*.jpg *.png)")
+        if imgLink:
+            self.image_path = imgLink
+            self.setAvatarImage()
+
+    def setAvatarImage(self):
+        self.pixmap = QPixmap(self.image_path)
+
+        # Kiểm tra kích thước ảnh
+        if self.pixmap.width() > 1024 or self.pixmap.height() > 1024:
+            self.messageBoxInfo("Thông báo", "Ảnh quá lớn, vui lòng chọn ảnh có kích thước nhỏ hơn!")
+            return
+
+        # Giảm kích thước nếu cần
+        self.pixmap = self.pixmap.scaled(128, 128, QtCore.Qt.AspectRatioMode.KeepAspectRatio)
         self.lblAvatar.setPixmap(self.pixmap)
-        self.image = imgLink[0].split('/')[-1]
 
     def addItem(self):
         if self.txtMaSinhVien.text() == "" or self.txtTenSinhVien.text() == "":
@@ -63,48 +81,60 @@ class sinhvien(QMainWindow):
         # Thêm thông tin sinh viên vào CSDL MySQL
         strsql = f"INSERT INTO sinh_vien (MaSinhVien, TenSinhVien, Lop, GioiTinh, Avatar) VALUES ('{MaSinhVien}', '{TenSinhVien}', '{Lop}', '{GioiTinh}', '{Avatar}')"
         self.conn.queryExecute(strsql)
-        
+
+        if self.image_path:
+            self.saveAvatar()
+
         self.messageBoxInfo("Thông báo", "Thêm sinh viên thành công!")
         self.resetTextBox()
         self.loadData()
 
-    def getItem(self):
-        # Lấy chỉ số hàng hiện tại trong bảng
-        row = self.tblSinhVien.currentRow()
-        
-        # Kiểm tra nếu không có hàng nào được chọn
-        if row < 0:  
-            return  # Trở về nếu không có hàng nào được chọn
-        
-        try:
-            # Lấy thông tin sinh viên từ hàng đã chọn
-            MaSinhVien = self.tblSinhVien.item(row, 0).text()
-            HoTen = self.tblSinhVien.item(row, 1).text()
-            GioiTinh = self.tblSinhVien.item(row, 2).text()
-            Lop = self.tblSinhVien.item(row, 3).text()
+    def saveAvatar(self):
+        dir_path = os.path.dirname(os.path.realpath(__file__))
+        avatar_dir = os.path.join(dir_path, 'img', 'avatar')
 
-            # Truy vấn cơ sở dữ liệu để lấy thông tin chi tiết của sinh viên
-            strsql = f"SELECT * FROM sinh_vien WHERE MaSinhVien = '{MaSinhVien}'"
+        new_avatar = os.path.join(avatar_dir, os.path.basename(self.image_path))
+        shutil.copy2(self.image_path, new_avatar)
+
+    def getItem(self):
+        row = self.tblSinhVien.currentRow()
+        if row < 0:
+            return
+
+        try:
+            MaSinhVien = self.tblSinhVien.item(row, 0).text()
+            strsql = f"SELECT MaSinhVien, TenSinhVien, Lop, GioiTinh, Avatar FROM sinh_vien WHERE MaSinhVien = '{MaSinhVien}'"
             result = self.conn.queryResult(strsql)
 
-            # Cập nhật giao diện với thông tin sinh viên
-            dir_path = os.path.dirname(os.path.realpath(__file__))
-            self.pixmap = QPixmap(dir_path + '\\' + 'img\\avatar\\' + result[0][4])
-            self.lblAvatar.setPixmap(self.pixmap)
-            self.txtMaSinhVien.setText(MaSinhVien)
-            self.txtTenSinhVien.setText(HoTen)
-            self.cbGioiTinh.setCurrentText(GioiTinh)
+            if result:
+                self.populateForm(result[0])
+            else:
+                self.messageBoxInfo("Thông báo", "Không tìm thấy sinh viên.")
+        except Exception as e:
+            print(f"Lỗi: {e}")
 
-            # Kiểm tra xem 'cbLop' có tồn tại hay không trước khi sử dụng
-            if hasattr(self, 'cbLop'):
-                self.cbLop.setCurrentText(Lop)
+    def populateForm(self, student):
+        self.txtMaSinhVien.setText(student[0])
+        self.txtTenSinhVien.setText(student[1])
+        self.txtLop.setText(student[2])
+        self.cbGioiTinh.setCurrentText(student[3])
 
-            # Vô hiệu hóa các trường và nút thêm
-            self.txtMaSinhVien.setEnabled(False)
-            self.btnThem.setEnabled(False)
-        except Exception:
-            # Không hiển thị thông báo lỗi
-            pass
+        avatar_data = student[4]
+        self.loadAvatar(avatar_data)
+
+    def loadAvatar(self, avatar_data):
+        if avatar_data:  
+            # Xử lý nếu Avatar là dạng BLOB
+            if isinstance(avatar_data, bytes):
+                pixmap = QPixmap()
+                pixmap.loadFromData(avatar_data)
+            else:
+                avatar_path = avatar_data.strip("b'\"")
+                pixmap = QPixmap(avatar_path)
+
+            self.lblAvatar.setPixmap(pixmap.scaled(128, 128, Qt.AspectRatioMode.KeepAspectRatio))
+        else:
+            self.lblAvatar.setPixmap(QPixmap("./img/avatar/user.png"))
 
     def searchItem(self):
         if self.txtTimKiem.text() == "":
@@ -115,94 +145,98 @@ class sinhvien(QMainWindow):
         strsql = f"SELECT * FROM sinh_vien WHERE TenSinhVien LIKE '%{TenSinhVien}%'"
         result = self.conn.queryResult(strsql)
         
-        row = 0
-        self.tblSinhVien.setRowCount(len(result))
-        for user in result:
+        self.updateTable(result)
+        self.resetAvatar()
+
+    def updateTable(self, data):
+        self.tblSinhVien.setRowCount(len(data))
+        for row, user in enumerate(data):
             self.tblSinhVien.setItem(row, 0, QtWidgets.QTableWidgetItem(str(user[0])))
             self.tblSinhVien.setItem(row, 1, QtWidgets.QTableWidgetItem(str(user[1])))
             self.tblSinhVien.setItem(row, 2, QtWidgets.QTableWidgetItem(str(user[2])))
             self.tblSinhVien.setItem(row, 3, QtWidgets.QTableWidgetItem(str(user[3])))
-            row += 1
-        
+
+    def resetAvatar(self):
         self.pixmap = QPixmap("./img/avatar/user.png")
         self.lblAvatar.setPixmap(self.pixmap)
-        self.txtMaSinhVien.setEnabled(True)
 
     def updateItem(self):
         if self.txtMaSinhVien.text() == "" or self.txtTenSinhVien.text() == "":
             self.messageBoxInfo("Thông Báo", "Vui lòng nhập đầy đủ thông tin!")
             return
-        
+
         MaSinhVien = self.txtMaSinhVien.text()
-        strsql = f"SELECT * FROM sinh_vien WHERE MaSinhVien = '{MaSinhVien}'"
-        result = self.conn.queryResult(strsql)
         HoTen = self.txtTenSinhVien.text()
         GioiTinh = self.cbGioiTinh.currentText()
-        Lop = self.cbLop.currentText()
-        Avatar = result[0][4] if self.image == "" else self.image
-        
-        strsql = f"UPDATE `sinh_vien` SET `TenSinhVien`='{HoTen}',`GioiTinh`='{GioiTinh}',`Lop`='{Lop}',`Avatar`='{Avatar}' WHERE `MaSinhVien`='{MaSinhVien}'"
-        self.conn.queryExecute(strsql)
-        
-        self.messageBoxInfo("Thông báo", "Cập nhật sinh viên thành công!")
+        Lop = self.txtLop.text()
+
+        strsql = f"SELECT * FROM sinh_vien WHERE MaSinhVien = '{MaSinhVien}'"
+        result = self.conn.queryResult(strsql)
+
+        if not result:
+            self.messageBoxInfo("Thông Báo", "Mã sinh viên không tồn tại!")
+            return
+
+        self.updateStudentInfo(MaSinhVien, HoTen, GioiTinh, Lop, result[0][4])
+
+    def updateStudentInfo(self, MaSinhVien, HoTen, GioiTinh, Lop, old_avatar):
+        strsql_update = f"UPDATE sinh_vien SET TenSinhVien='{HoTen}', GioiTinh='{GioiTinh}', Lop='{Lop}' WHERE MaSinhVien='{MaSinhVien}'"
+        self.conn.queryExecute(strsql_update)
+
+        if self.image_path:
+            self.updateAvatar(MaSinhVien, old_avatar)
+
+        self.messageBoxInfo("Thông Báo", "Cập nhật thông tin sinh viên thành công!")
         self.resetTextBox()
         self.loadData()
 
+    def updateAvatar(self, MaSinhVien, old_avatar):
+        dir_path = os.path.dirname(os.path.realpath(__file__))
+        avatar_dir = os.path.join(dir_path, 'img', 'avatar')
+
+        old_avatar_path = os.path.join(avatar_dir, old_avatar)
+        if os.path.exists(old_avatar_path):
+            os.remove(old_avatar_path)
+
+        new_avatar = os.path.join(avatar_dir, os.path.basename(self.image_path))
+        shutil.copy2(self.image_path, new_avatar)
+
     def deleteItem(self):
         if self.txtMaSinhVien.text() == "":
-            self.messageBoxInfo("Thông Báo", "Vui lòng chọn sinh viên cần xóa!")
+            self.messageBoxInfo("Thông Báo", "Vui lòng nhập mã sinh viên cần xóa!")
             return
+
         MaSinhVien = self.txtMaSinhVien.text()
-        strsql = f"DELETE FROM `sinh_vien` WHERE MaSinhVien = '{MaSinhVien}'"
+        strsql = f"DELETE FROM sinh_vien WHERE MaSinhVien='{MaSinhVien}'"
         self.conn.queryExecute(strsql)
-        
-        self.messageBoxInfo("Thông báo", "Xóa sinh viên thành công!")
+
+        self.messageBoxInfo("Thông Báo", "Xóa sinh viên thành công!")
         self.resetTextBox()
         self.loadData()
 
     def resetTextBox(self):
-        self.txtMaSinhVien.setText('')
-        self.txtTenSinhVien.setText('')
-        self.cbGioiTinh.setCurrentText('Nam')
-        self.cbLop.setCurrentText('Lop')
-        self.pixmap = QPixmap("./img/avatar/user.png")
-        self.lblAvatar.setPixmap(self.pixmap)
-        
-        self.txtMaSinhVien.setEnabled(True)
-        self.btnThem.setEnabled(True)
-        self.loadData()
+        self.txtMaSinhVien.clear()
+        self.txtTenSinhVien.clear()
+        self.txtLop.clear()
+        self.cbGioiTinh.setCurrentIndex(0)
+        self.resetAvatar()
 
     def loadData(self):
         strsql = "SELECT * FROM sinh_vien"
         result = self.conn.queryResult(strsql)
-        
-        row = 0
-        self.tblSinhVien.setRowCount(len(result))
-        for user in result:
-            self.tblSinhVien.setItem(row, 0, QtWidgets.QTableWidgetItem(str(user[0])))
-            self.tblSinhVien.setItem(row, 1, QtWidgets.QTableWidgetItem(str(user[1])))
-            self.tblSinhVien.setItem(row, 2, QtWidgets.QTableWidgetItem(str(user[2])))
-            self.tblSinhVien.setItem(row, 3, QtWidgets.QTableWidgetItem(str(user[3])))
-            row += 1
-        
-        self.txtMaSinhVien.setEnabled(True)
-        self.btnThem.setEnabled(True)
-    
-    def exitForm(self):
-        choice = QMessageBox.question(self, 'Xác Nhận', "Bạn có chắc chắn muốn thoát không?", 
-                                       QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        if choice == QMessageBox.StandardButton.Yes:
-            sys.exit()
-            
-    def messageBoxInfo(self, title, text):
-        msg = QMessageBox()
-        msg.setWindowTitle(title)
-        msg.setText(text)
-        msg.exec()
+        self.updateTable(result)
+
+    def confirmExit(self):
+        reply = QMessageBox.question(self, "Thông báo", "Bạn có chắc muốn thoát?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            self.close()
+
+    def messageBoxInfo(self, title, message):
+        QMessageBox.information(self, title, message)
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    widget = QtWidgets.QStackedWidget()
-    mainWindow = sinhvien(widget)
-    mainWindow.show()
+    app = QtWidgets.QApplication(sys.argv)
+    window = SinhVien()
+    window.show()
     sys.exit(app.exec())
